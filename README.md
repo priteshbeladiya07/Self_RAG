@@ -1,161 +1,227 @@
 # Self-RAG with LangGraph
 
-A four-phase Self-RAG pipeline that decides when to retrieve documents, evaluates retrieved content, verifies generated answers, and retries when necessary.
+This project demonstrates how to build a Self-RAG system in four phases using LangChain, LangGraph, Mistral AI, FAISS, and a company policy PDF.
+
+The system retrieves information only when required, checks document relevance, verifies answer support, evaluates usefulness, and rewrites failed queries.
 
 ## Project Structure
 
 ```text
 Self RAG/
 ├── Company_Policies.pdf
+├── self_rag_step1.ipynb
+├── self_rag_step2.ipynb
+├── self_rag_step3.ipynb
 ├── self_rag_step4.ipynb
 └── README.md
 ```
 
-## Requirements
+## Technologies
 
-- Python 3.10+
-- Mistral API key
-- Jupyter or Visual Studio Code
+- Python
+- LangChain
+- LangGraph
+- Mistral AI
+- FAISS
+- PyPDF
+- Pydantic
+- Jupyter Notebook
 
-## Installation
+## Setup
+
+Create a virtual environment in Windows PowerShell:
 
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\Activate.ps1
+```
+
+Install dependencies:
+
+```powershell
 pip install langchain langchain-community langchain-mistralai langchain-text-splitters langgraph faiss-cpu pypdf pydantic python-dotenv jupyter
 ```
 
-Create a `.env` file:
+Add your Mistral API key to `.env`:
 
 ```env
 MISTRAL_API_KEY=your_mistral_api_key
 ```
 
-Place `Company_Policies.pdf` in the project directory.
+Do not commit `.env` to Git.
 
-## Four Phases
+## How to Run
 
-### Phase 1: Retrieval Decision
+Run the notebooks in order:
 
-The `decide_retrieval` node uses an LLM to determine whether the question requires company-specific information.
+```text
+1. self_rag_step1.ipynb
+2. self_rag_step2.ipynb
+3. self_rag_step3.ipynb
+4. self_rag_step4.ipynb
+```
 
-- General questions are answered directly.
-- Company-specific questions continue to retrieval.
+Open the project in VS Code:
 
-### Phase 2: Document Retrieval and Relevance
+```powershell
+code .
+```
 
-The PDF is loaded, split into chunks, embedded with Mistral embeddings, and indexed using FAISS.
+Make sure `Company_Policies.pdf` is in the project root before running the notebooks.
 
-The graph then:
+---
 
-1. Retrieves relevant chunks.
-2. Uses an LLM to filter documents by topic relevance.
-3. Generates an answer from the relevant context.
+## Phase 1: Basic RAG
 
-### Phase 3: Answer Support Verification
+File: `self_rag_step1.ipynb`
 
-The `is_sup` node checks whether the generated answer is supported by the retrieved context.
+The first phase builds the basic retrieval pipeline:
 
-Possible results:
+1. Load `Company_Policies.pdf`.
+2. Split the document into smaller chunks.
+3. Create embeddings using Mistral AI.
+4. Store the embeddings in FAISS.
+5. Retrieve relevant document chunks.
+6. Generate an answer using the retrieved context.
+
+This phase establishes the foundation for the complete Self-RAG system.
+
+---
+
+## Phase 2: Retrieval Decision
+
+File: `self_rag_step2.ipynb`
+
+The second phase adds a retrieval decision step.
+
+The LLM decides whether the question requires information from company documents.
+
+```text
+Question
+   ├── General question → Direct answer
+   └── Company-specific question → Retrieve documents
+```
+
+General questions can be answered directly, while company-specific questions use the vector store.
+
+---
+
+## Phase 3: Document and Answer Evaluation
+
+File: `self_rag_step3.ipynb`
+
+The third phase improves answer quality by evaluating the retrieval and generation process.
+
+The system:
+
+- Checks whether retrieved documents are relevant.
+- Generates an answer from relevant documents.
+- Verifies whether answer claims are supported by the context.
+- Revises answers that contain unsupported information.
+
+The support evaluation returns one of three results:
 
 - `fully_supported`
 - `partially_supported`
 - `no_support`
 
-Unsupported answers are revised using context-only quotes and verified again.
+---
 
-### Phase 4: Answer Usefulness and Query Rewriting
+## Phase 4: Complete Self-RAG with LangGraph
 
-The `is_use` node checks whether the answer actually addresses the user’s question.
+File: `self_rag_step4.ipynb`
 
-If the answer is not useful:
+The fourth phase combines all components into a LangGraph workflow.
 
-1. The retrieval query is rewritten.
-2. Documents are retrieved again.
-3. The answer-generation and verification process repeats.
+### Main Graph Nodes
 
-The graph stops after a configurable number of retries.
+- `decide_retrieval` — decides whether retrieval is required.
+- `generate_direct` — answers general questions.
+- `retrieve` — searches the FAISS vector store.
+- `is_relevant` — filters documents by relevance.
+- `generate_from_context` — generates an answer using retrieved context.
+- `is_sup` — checks answer support.
+- `revise_answer` — removes unsupported claims.
+- `is_use` — checks whether the answer addresses the question.
+- `rewrite_question` — creates a better retrieval query.
+- `no_answer_found` — handles failed retrieval attempts.
 
-## Graph Flow
+### Complete Workflow
 
 ```text
 START
   ↓
-Decide Retrieval
-  ├── Generate Direct Answer → END
-  └── Retrieve Documents
-          ↓
-      Check Relevance
-       ├── No Answer Found → END
-       └── Generate from Context
-                    ↓
-                Verify Support
-                 ├── Revise Answer → Verify Support
-                 └── Check Usefulness
-                              ├── Useful → END
-                              ├── Rewrite Query → Retrieve
-                              └── Retry Limit → END
+Decide whether retrieval is needed
+  ├── No → Generate direct answer → END
+  └── Yes
+        ↓
+      Retrieve documents
+        ↓
+      Check document relevance
+        ├── No relevant documents → No answer found → END
+        └── Relevant documents
+                ↓
+          Generate answer from context
+                ↓
+          Verify answer support
+                ├── Unsupported → Revise answer → Verify again
+                └── Supported
+                        ↓
+                  Check answer usefulness
+                    ├── Useful → END
+                    ├── Not useful → Rewrite query → Retrieve again
+                    └── Retry limit reached → END
 ```
 
-## Running the Notebook
+### Retry Controls
 
-Open the notebook:
-
-```powershell
-code .\self_rag_step4.ipynb
-```
-
-Run the cells from top to bottom. Update the question in the `initial_state` cell:
-
-```python
-initial_state = {
-    "question": "Describe NexaAI's company culture.",
-    "retrieval_query": "",
-    "rewrite_tries": 0,
-    "docs": [],
-    "relevant_docs": [],
-    "context": "",
-    "answer": "",
-    "issup": "",
-    "evidence": [],
-    "retries": 0,
-    "isuse": "not_useful",
-    "use_reason": "",
-}
-```
-
-The final cell displays:
-
-- Whether retrieval was needed
-- Retrieved and relevant documents
-- Verification status
-- Evidence quotes
-- Retry counts
-- Final answer
-
-## Configuration
-
-Adjust retry limits in the notebook:
+The notebook limits repeated attempts using:
 
 ```python
 MAX_RETRIES = 10
 MAX_REWRITE_TRIES = 3
 ```
 
-The retriever currently returns four documents:
+These values can be adjusted depending on cost, latency, and answer quality requirements.
+
+## Example Question
 
 ```python
-retriever = vector_store.as_retriever(
-    search_kwargs={"k": 4}
-)
+"Describe NexaAI's company culture."
 ```
 
-## Technologies
+The final output displays:
 
-- LangGraph — workflow orchestration
-- LangChain — LLM and retrieval components
-- Mistral AI — chat model and embeddings
-- FAISS — vector similarity search
-- PyPDF — PDF loading
-- Pydantic — structured LLM outputs
-- Python TypedDict — graph state definition
+- Whether retrieval was needed
+- Number of retrieved documents
+- Number of relevant documents
+- Support verification result
+- Evidence quotes
+- Number of retries
+- Final answer
+
+## Environment Variables
+
+The `.env` file should contain:
+
+```env
+MISTRAL_API_KEY=your_mistral_api_key
+```
+
+Keep API keys private and ensure `.env` is included in `.gitignore`.
+
+## Summary
+
+This project evolves from a basic RAG pipeline into a complete Self-RAG workflow:
+
+```text
+Basic RAG
+   ↓
+Retrieval Decision
+   ↓
+Relevance and Support Evaluation
+   ↓
+Self-RAG Workflow with LangGraph
+```
+
+The final system can decide, retrieve, evaluate, revise, and retry automatically.
